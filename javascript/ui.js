@@ -8,8 +8,8 @@ function set_theme(theme){
 }
 
 function selected_gallery_index(){
-    var buttons = gradioApp().querySelectorAll('[style="display: block;"].tabitem .gallery-item')
-    var button = gradioApp().querySelector('[style="display: block;"].tabitem .gallery-item.\\!ring-2')
+    var buttons = gradioApp().querySelectorAll('[style="display: block;"].tabitem div[id$=_gallery] .gallery-item')
+    var button = gradioApp().querySelector('[style="display: block;"].tabitem div[id$=_gallery] .gallery-item.\\!ring-2')
 
     var result = -1
     buttons.forEach(function(v, i){ if(v==button) { result = i } })
@@ -100,7 +100,7 @@ function create_submit_args(args){
 
     // As it is currently, txt2img and img2img send back the previous output args (txt2img_gallery, generation_info, html_info) whenever you generate a new image.
     // This can lead to uploading a huge gallery of previously generated images, which leads to an unnecessary delay between submitting and beginning to generate.
-    // I don't know why gradio is seding outputs along with inputs, but we can prevent sending the image gallery here, which seems to be an issue for some.
+    // I don't know why gradio is sending outputs along with inputs, but we can prevent sending the image gallery here, which seems to be an issue for some.
     // If gradio at some point stops sending outputs, this may break something
     if(Array.isArray(res[res.length - 3])){
         res[res.length - 3] = null
@@ -129,6 +129,15 @@ function submit_img2img(){
 function ask_for_style_name(_, prompt_text, negative_prompt_text) {
     name_ = prompt('Style name:')
     return [name_, prompt_text, negative_prompt_text]
+}
+
+function confirm_clear_prompt(prompt, negative_prompt) {
+    if(confirm("Delete prompt?")) {
+        prompt = ""
+        negative_prompt = ""
+    }
+
+    return [prompt, negative_prompt]
 }
 
 
@@ -208,4 +217,6 @@ function update_token_counter(button_id) {
 function restart_reload(){
     document.body.innerHTML='<h1 style="font-family:monospace;margin-top:20%;color:lightgray;text-align:center;">Reloading...</h1>';
     setTimeout(function(){location.reload()},2000)
+
+    return []
 }

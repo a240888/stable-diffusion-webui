@@ -1,4 +1,5 @@
 import modules.scripts
+from modules import sd_samplers
 from modules.processing import StableDiffusionProcessing, Processed, StableDiffusionProcessingTxt2Img, \
     StableDiffusionProcessingImg2Img, process_images
 from modules.shared import opts, cmd_opts
@@ -21,7 +22,7 @@ def txt2img(prompt: str, negative_prompt: str, prompt_style: str, prompt_style2:
         seed_resize_from_h=seed_resize_from_h,
         seed_resize_from_w=seed_resize_from_w,
         seed_enable_extras=seed_enable_extras,
-        sampler_index=sampler_index,
+        sampler_name=sd_samplers.samplers[sampler_index].name,
         batch_size=batch_size,
         n_iter=n_iter,
         steps=steps,
@@ -47,6 +48,8 @@ def txt2img(prompt: str, negative_prompt: str, prompt_style: str, prompt_style2:
     if processed is None:
         processed = process_images(p)
 
+    p.close()
+
     shared.total_tqdm.clear()
 
     generation_info_js = processed.js()
@@ -56,4 +59,4 @@ def txt2img(prompt: str, negative_prompt: str, prompt_style: str, prompt_style2:
     if opts.do_not_show_images:
         processed.images = []
 
-    return processed.images, generation_info_js, plaintext_to_html(processed.info)
+    return processed.images, generation_info_js, plaintext_to_html(processed.info), plaintext_to_html(processed.comments)

@@ -1,3 +1,4 @@
+import os
 import torch
 
 from einops import repeat
@@ -177,7 +178,7 @@ def sample_plms(self,
     # sampling
     C, H, W = shape
     size = (batch_size, C, H, W)
-    print(f'Data shape for PLMS sampling is {size}')
+    # print(f'Data shape for PLMS sampling is {size}') # remove unnecessary message
 
     samples, intermediates = self.plms_sampling(conditioning, size,
                                                 callback=callback,
@@ -199,8 +200,8 @@ def sample_plms(self,
 
 @torch.no_grad()
 def p_sample_plms(self, x, c, t, index, repeat_noise=False, use_original_steps=False, quantize_denoised=False,
-                    temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,
-                    unconditional_guidance_scale=1., unconditional_conditioning=None, old_eps=None, t_next=None):
+                  temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,
+                  unconditional_guidance_scale=1., unconditional_conditioning=None, old_eps=None, t_next=None, dynamic_threshold=None):
     b, *_, device = *x.shape, x.device
 
     def get_model_output(x, t):
@@ -209,7 +210,7 @@ def p_sample_plms(self, x, c, t, index, repeat_noise=False, use_original_steps=F
         else:
             x_in = torch.cat([x] * 2)
             t_in = torch.cat([t] * 2)
-            
+
             if isinstance(c, dict):
                 assert isinstance(unconditional_conditioning, dict)
                 c_in = dict()
@@ -249,6 +250,8 @@ def p_sample_plms(self, x, c, t, index, repeat_noise=False, use_original_steps=F
         pred_x0 = (x - sqrt_one_minus_at * e_t) / a_t.sqrt()
         if quantize_denoised:
             pred_x0, _, *_ = self.model.first_stage_model.quantize(pred_x0)
+        if dynamic_threshold is not None:
+            pred_x0 = norm_thresholding(pred_x0, dynamic_threshold)
         # direction pointing to x_t
         dir_xt = (1. - a_prev - sigma_t**2).sqrt() * e_t
         noise = sigma_t * noise_like(x.shape, device, repeat_noise) * temperature
@@ -276,7 +279,7 @@ def p_sample_plms(self, x, c, t, index, repeat_noise=False, use_original_steps=F
     x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t_prime, index)
 
     return x_prev, pred_x0, e_t
-    
+
 # =================================================================================================
 # Monkey patch LatentInpaintDiffusion to load the checkpoint with a proper config.
 # Adapted from:
@@ -317,15 +320,21 @@ class LatentInpaintDiffusion(LatentDiffusion):
 
 
 def should_hijack_inpainting(checkpoint_info):
-    return str(checkpoint_info.filename).endswith("inpainting.ckpt") and not checkpoint_info.config.endswith("inpainting.yaml")
+    ckpt_basename = os.path.basename(checkpoint_info.filename).lower()
+    cfg_basename = os.path.basename(checkpoint_info.config).lower()
+    return "inpainting" in ckpt_basename and not "inpainting" in cfg_basename
 
 
 def do_inpainting_hijack():
-    ldm.models.diffusion.ddpm.get_unconditional_conditioning = get_unconditional_conditioning
-    ldm.models.diffusion.ddpm.LatentInpaintDiffusion = LatentInpaintDiffusion
+    # most of this stuff seems to no longer be needed because it is already included into SD2.0
+    # p_sample_plms is needed because PLMS can't work with dicts as conditionings
+    # this file should be cleaned up later if everything turns out to work fine
 
-    ldm.models.diffusion.ddim.DDIMSampler.p_sample_ddim = p_sample_ddim
-    ldm.models.diffusion.ddim.DDIMSampler.sample = sample_ddim
+    # ldm.models.diffusion.ddpm.get_unconditional_conditioning = get_unconditional_conditioning
+    # ldm.models.diffusion.ddpm.LatentInpaintDiffusion = LatentInpaintDiffusion
+
+    # ldm.models.diffusion.ddim.DDIMSampler.p_sample_ddim = p_sample_ddim
+    # ldm.models.diffusion.ddim.DDIMSampler.sample = sample_ddim
 
     ldm.models.diffusion.plms.PLMSSampler.p_sample_plms = p_sample_plms
-    ldm.models.diffusion.plms.PLMSSampler.sample = sample_plms
+    # ldm.models.diffusion.plms.PLMSSampler.sample = sample_plms

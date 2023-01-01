@@ -2,6 +2,8 @@ import base64
 import io
 import os
 import re
+from pathlib import Path
+
 import gradio as gr
 from modules.shared import script_path
 from modules import shared
@@ -12,9 +14,15 @@ re_param_code = r'\s*([\w ]+):\s*("(?:\\|\"|[^\"])+"|[^,]*)(?:,|$)'
 re_param = re.compile(re_param_code)
 re_params = re.compile(r"^(?:" + re_param_code + "){3,}$")
 re_imagesize = re.compile(r"^(\d+)x(\d+)$")
+re_hypernet_hash = re.compile("\(([0-9a-f]+)\)$")
 type_of_gr_update = type(gr.update())
 paste_fields = {}
 bind_list = []
+
+
+def reset():
+    paste_fields.clear()
+    bind_list.clear()
 
 
 def quote(text):
@@ -30,9 +38,8 @@ def quote(text):
 def image_from_url_text(filedata):
     if type(filedata) == dict and filedata["is_file"]:
         filename = filedata["name"]
-        tempdir = os.path.normpath(tempfile.gettempdir())
-        normfn = os.path.normpath(filename)
-        assert normfn.startswith(tempdir), 'trying to open image file not in temporary directory'
+        is_in_right_dir = any([filename in fileset for fileset in shared.demo.temp_file_sets])
+        assert is_in_right_dir, 'trying to open image file outside of allowed directories'
 
         return Image.open(filename)
 
@@ -68,7 +75,10 @@ def integrate_settings_paste_fields(component_dict):
         'sd_hypernetwork': 'Hypernet',
         'sd_hypernetwork_strength': 'Hypernet strength',
         'CLIP_stop_at_last_layers': 'Clip skip',
+        'inpainting_mask_weight': 'Conditional mask weight',
         'sd_model_checkpoint': 'Model hash',
+        'eta_noise_seed_delta': 'ENSD',
+        'initial_noise_multiplier': 'Noise multiplier',
     }
     settings_paste_fields = [
         (component_dict[k], lambda d, k=k, v=v: ui.apply_setting(k, d.get(v, None)))
@@ -113,8 +123,7 @@ def run_bind():
 
             if send_generate_info and paste_fields[tab]["fields"] is not None:
                 if send_generate_info in paste_fields:
-                    paste_field_names = ['Prompt', 'Negative prompt', 'Steps', 'Face restoration', 'Size-1', 'Size-2'] + (["Seed"] if shared.opts.send_seed else [])
-
+                    paste_field_names = ['Prompt', 'Negative prompt', 'Steps', 'Face restoration'] +  (['Size-1', 'Size-2'] if shared.opts.send_size else []) + (["Seed"] if shared.opts.send_seed else [])
                     button.click(
                         fn=lambda *x: x,
                         inputs=[field for field, name in paste_fields[send_generate_info]["fields"] if name in paste_field_names],
@@ -129,6 +138,30 @@ def run_bind():
                 inputs=None,
                 outputs=None,
             )
+
+
+def find_hypernetwork_key(hypernet_name, hypernet_hash=None):
+    """Determines the config parameter name to use for the hypernet based on the parameters in the infotext.
+
+    Example: an infotext provides "Hypernet: ke-ta" and "Hypernet hash: 1234abcd". For the "Hypernet" config
+    parameter this means there should be an entry that looks like "ke-ta-10000(1234abcd)" to set it to.
+
+    If the infotext has no hash, then a hypernet with the same name will be selected instead.
+    """
+    hypernet_name = hypernet_name.lower()
+    if hypernet_hash is not None:
+        # Try to match the hash in the name
+        for hypernet_key in shared.hypernetworks.keys():
+            result = re_hypernet_hash.search(hypernet_key)
+            if result is not None and result[1] == hypernet_hash:
+                return hypernet_key
+    else:
+        # Fall back to a hypernet with the same name
+        for hypernet_key in shared.hypernetworks.keys():
+            if hypernet_key.lower().startswith(hypernet_name):
+                return hypernet_key
+
+    return None
 
 
 def parse_generation_parameters(x: str):
@@ -175,6 +208,18 @@ Steps: 20, Sampler: Euler a, CFG scale: 7, Seed: 965400086, Size: 512x512, Model
             res[k+"-2"] = m.group(2)
         else:
             res[k] = v
+
+    # Missing CLIP skip means it was set to 1 (the default)
+    if "Clip skip" not in res:
+        res["Clip skip"] = "1"
+
+    if "Hypernet strength" not in res:
+        res["Hypernet strength"] = "1"
+
+    if "Hypernet" in res:
+        hypernet_name = res["Hypernet"]
+        hypernet_hash = res.get("Hypernet hash", None)
+        res["Hypernet"] = find_hypernetwork_key(hypernet_name, hypernet_hash)
 
     return res
 
