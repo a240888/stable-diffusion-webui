@@ -39,14 +39,12 @@ def image_grid(imgs, batch_size=1, rows=None):
 
     cols = math.ceil(len(imgs) / rows)
 
-    params = script_callbacks.ImageGridLoopParams(imgs, cols, rows)
-    script_callbacks.image_grid_callback(params)
-
     w, h = imgs[0].size
-    grid = Image.new('RGB', size=(params.cols * w, params.rows * h), color='black')
+    grid = Image.new('RGB', size=(cols * w, rows * h), color='black')
 
-    for i, img in enumerate(params.imgs):
-        grid.paste(img, box=(i % params.cols * w, i // params.cols * h))
+    for i, img in enumerate(imgs):
+        script_callbacks.image_grid_loop_callback(img)
+        grid.paste(img, box=(i % cols * w, i // cols * h))
 
     return grid
 
